@@ -10,6 +10,7 @@ import os
 
 # Load environment variables
 load_dotenv()
+print("API KEY =", os.getenv("GROQ_API_KEY"))
 
 app = FastAPI()
 
@@ -33,7 +34,7 @@ class QueryRequest(BaseModel):
 
 
 # Chunking function
-def chunk_text(text, chunk_size=500):
+def chunk_text(text, chunk_size=50):
 
     chunks = []
 
@@ -118,7 +119,7 @@ async def ask_question(request: QueryRequest):
     try:
 
         completion = groq_client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             messages=[
                 {
                     "role": "user",
@@ -135,8 +136,8 @@ async def ask_question(request: QueryRequest):
             "retrieved_chunks": retrieved_chunks
         }
 
-    except Exception:
-
+    except Exception as e:
+        print(e)
         # Fallback mode
         return {
             "question": question,
