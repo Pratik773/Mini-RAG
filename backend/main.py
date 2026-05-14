@@ -1,12 +1,39 @@
 from fastapi import FastAPI, UploadFile, File
+from pydantic import BaseModel
 import shutil
 from pypdf import PdfReader
+from sentence_transformers import SentenceTransformer
+import chromadb
+from groq import Groq
+from dotenv import load_dotenv
+import os
+
+# Load environment variables
+load_dotenv()
 
 app = FastAPI()
 
+# Groq client
+groq_client = Groq(
+    api_key=os.getenv("GROQ_API_KEY")
+)
 
-# Function for chunking text
-def chunk_text(text, chunk_size=50):
+# Load embedding model
+model = SentenceTransformer('all-MiniLM-L6-v2')
+
+# Initialize ChromaDB
+client = chromadb.PersistentClient(path="chroma_db")
+
+collection = client.get_or_create_collection(name="documents")
+
+
+# Request model
+class QueryRequest(BaseModel):
+    question: str
+
+
+# Chunking function
+def chunk_text(text, chunk_size=500):
 
     chunks = []
 
@@ -25,13 +52,11 @@ def home():
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
 
-    # Save uploaded file
     file_path = f"uploads/{file.filename}"
 
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # Read PDF
     reader = PdfReader(file_path)
 
     text = ""
@@ -42,11 +67,80 @@ async def upload_pdf(file: UploadFile = File(...)):
         if extracted:
             text += extracted
 
-    # Create chunks
     chunks = chunk_text(text)
+
+    for index, chunk in enumerate(chunks):
+
+        embedding = model.encode(chunk).tolist()
+
+        collection.add(
+            ids=[f"{file.filename}_{index}"],
+            embeddings=[embedding],
+            documents=[chunk]
+        )
 
     return {
         "filename": file.filename,
         "total_chunks": len(chunks),
-        "first_chunk": chunks[0]
+        "message": "Embeddings stored successfully"
     }
+
+
+@app.post("/ask")
+async def ask_question(request: QueryRequest):
+
+    question = request.question
+
+    # Convert question into embedding
+    query_embedding = model.encode(question).tolist()
+
+    # Retrieve similar chunks
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=3
+    )
+
+    retrieved_chunks = results["documents"][0]
+
+    context = "\n".join(retrieved_chunks)
+
+    # Prompt for LLM
+    prompt = f"""
+    Answer the question only using the context below.
+
+    Context:
+    {context}
+
+    Question:
+    {question}
+    """
+
+    try:
+
+        completion = groq_client.chat.completions.create(
+            model="llama3-8b-8192",
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+
+        answer = completion.choices[0].message.content
+
+        return {
+            "question": question,
+            "answer": answer,
+            "retrieved_chunks": retrieved_chunks
+        }
+
+    except Exception:
+
+        # Fallback mode
+        return {
+            "question": question,
+            "fallback_mode": True,
+            "message": "LLM unavailable. Returning retrieved chunks only.",
+            "retrieved_chunks": retrieved_chunks
+        }
