@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import shutil
 from pypdf import PdfReader
@@ -13,6 +14,13 @@ load_dotenv()
 print("API KEY =", os.getenv("GROQ_API_KEY"))
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Groq client
 groq_client = Groq(
