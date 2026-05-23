@@ -41,10 +41,10 @@ class QueryRequest(BaseModel):
     question: str
 
 
-# Chunking function
+# Chunking function with chunks List
 def chunk_text(text, chunk_size=50):
-
-    chunks = []
+    
+    chunks = [] 
 
     for i in range(0, len(text), chunk_size):
         chunk = text[i:i + chunk_size]
